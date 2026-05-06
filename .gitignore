@@ -1,0 +1,49 @@
+# Medical record data - NEVER commit
+*.pdf
+*.PDF
+output/
+vault/
+test-vault/
+
+# OCR output
+*.ocr.txt
+ocr_output/
+
+# Extracted records
+extracted/
+
+# Generated Obsidian vault contents
+Medical Records/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Config with potentially sensitive paths
+config.yml
+config.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

@@ -1,0 +1,36 @@
+# medrec configuration
+# Copy to config.yml and adjust paths as needed.
+
+# OCR settings (only used when PDF text layer is missing/garbled)
+ocr:
+  engine: pytesseract          # "pytesseract" or "paddleocr"
+  languages: chi_sim+eng       # tesseract language packs
+  dpi: 300                     # render resolution for OCR fallback
+
+# Text extraction quality threshold
+# If extracted text has fewer than this ratio of CJK characters, trigger OCR
+min_chinese_char_ratio: 0.3
+
+# Obsidian vault folder names (under Medical Records/)
+obsidian:
+  root_folder: Medical Records
+  patients_folder: Patients
+  visits_folder: Visits
+  topics_folder: Topics
+  diseases_subfolder: Diseases
+  symptoms_subfolder: Symptoms
+  medications_subfolder: Medications
+  herbs_subfolder: Herbs
+  lab_indicators_subfolder: Lab Indicators
+  tcm_patterns_subfolder: TCM Patterns
+  relations_folder: Relations
+  sources_folder: Sources
+  tag_prefix: medical-record
+
+# Deduplication settings
+dedup:
+  fuzzy_threshold: 85          # rapidfuzz ratio threshold for name matching
+  content_hash_dedup: true     # detect and remove duplicate pages by content hash
+
+# Default language for OCR and output
+language: zh-CN
