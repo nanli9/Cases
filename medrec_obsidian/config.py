@@ -9,10 +9,8 @@ import yaml
 from pydantic import BaseModel, Field
 
 
-class OcrConfig(BaseModel):
-    engine: str = "pytesseract"
-    languages: str = "chi_sim+eng"
-    dpi: int = 300
+class RenderConfig(BaseModel):
+    dpi: int = 200
 
 
 class ObsidianConfig(BaseModel):
@@ -37,11 +35,9 @@ class DedupConfig(BaseModel):
 
 
 class Config(BaseModel):
-    ocr: OcrConfig = Field(default_factory=OcrConfig)
+    render: RenderConfig = Field(default_factory=RenderConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     dedup: DedupConfig = Field(default_factory=DedupConfig)
-    min_chinese_char_ratio: float = 0.3
-    language: str = "zh-CN"
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> Config:

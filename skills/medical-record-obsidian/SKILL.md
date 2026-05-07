@@ -2,104 +2,104 @@
 
 ## Description
 
-Ingest a Chinese medical record PDF into an Obsidian vault. Extracts patient demographics, TCM and Western diagnoses, symptoms, herbal prescriptions, medications, lab results, and builds an interlinked knowledge graph with Obsidian wikilinks.
+Process a Chinese medical record PDF into an interlinked Obsidian vault. Handles everything end-to-end: render pages, extract data via LLM vision, write vault notes.
 
-**All processing is local.** No cloud services, no LLM APIs, no network requests.
+## When to use
 
-## Prerequisites
+Trigger when the user says anything like:
+- "generate the notes for me /path/to/file.pdf"
+- "process this medical record"
+- "ingest this PDF into obsidian"
+- "update the vault with this PDF"
 
-The project must be bootstrapped first:
-```bash
-cd /home/nan/Desktop/cases/medical-record-obsidian
-bash bootstrap.sh
+## Vault path rules
+
+- **No vault path given**: use `vault/` in the project root
+- **Vault path given**: use it
+- **User says "update"**: ask for the vault path if not provided
+
+## Full workflow — execute all steps automatically
+
+```
+MEDREC=.venv/bin/medrec
 ```
 
-Or manually:
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e .
-sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng
-```
-
-## When to use this skill
-
-Use when the user asks to:
-- Process a medical record PDF
-- Ingest medical records into Obsidian
-- Extract patient data from a Chinese medical PDF
-- Build a medical knowledge graph in Obsidian
-
-## Commands
-
-All commands use the project venv at `/home/nan/Desktop/cases/medical-record-obsidian/.venv/bin/medrec`.
-
-### Inspect a PDF (read-only, always do this first)
+### Step 1: Render PDF pages
 
 ```bash
-/home/nan/Desktop/cases/medical-record-obsidian/.venv/bin/medrec inspect --pdf <PDF_PATH>
+$MEDREC render --pdf <PDF_PATH> --output-dir /tmp/medrec_pages_<timestamp>
 ```
 
-Prints detected patients, page grouping, diagnoses, symptoms, medications. No files written.
+### Step 2: Read each page image with the Read tool
 
-### Update vault with a PDF
+Read every PNG in the output directory. Group pages by patient using the header (patient name, registration number, visit date).
+
+For pages that are duplicates (same patient + reg# + date + identical content), skip them.
+
+### Step 3: Extract structured VisitRecord JSON
+
+For each distinct visit (unique patient + date), extract one JSON object with these fields:
+
+```json
+{
+  "patient_name": "姓名",
+  "sex": "男|女",
+  "age": 60,
+  "visit_date": "YYYY-MM-DD",
+  "hospital": "北京中医药大学东方医院",
+  "department": "科室",
+  "registration_number": "门诊号",
+  "fee_category": "费别",
+  "document_id": "DFYY-MZ-XXXXXXXX",
+  "doctor": "医生姓名",
+  "chief_complaint": "主诉 exact text",
+  "present_illness": "现病史 exact text (initial visit only)",
+  "follow_ups": [{"date_str": "2026-4-20", "follow_date": "2026-04-20", "text": "复诊内容", "lab_results": []}],
+  "chronic_history": "慢性病史",
+  "infectious_history": "传染病史",
+  "surgical_history": "手术/外伤史",
+  "allergy_history": "过敏史",
+  "personal_history": "个人史",
+  "family_history": "家族史",
+  "vital_signs_bp": "120/80",
+  "physical_exam": "体格检查",
+  "tcm_tongue": "舌象 (from 中医四诊 or inline in 现病史)",
+  "tcm_pulse": "脉象 (from 中医四诊 or inline in 现病史)",
+  "pattern_basis": "辨证依据",
+  "treatment_principle": "治则治法",
+  "notes": "注意事项",
+  "tcm_diagnoses": [{"index": 1, "name": "眩晕"}, {"index": 2, "name": "气血亏虚证"}],
+  "western_diagnoses": [{"index": 1, "name": "眩晕综合征"}],
+  "symptoms": ["头晕", "恶心"],
+  "herbal_formulas": [{
+    "formula_id": "43622340", "dose_count": 7,
+    "herbs": [{"name": "姜半夏", "dosage": "12.00g", "dosage_value": 12.0, "dosage_unit": "g"}]
+  }],
+  "medications": [{"name": "药名", "specification": "规格", "quantity": "数量", "frequency": "频次", "single_dose": "单次剂量", "route": "口服"}],
+  "chinese_patent_medicines": [{"name": "中成药名", "specification": "", "quantity": "", "frequency": "", "single_dose": "", "route": "口服"}],
+  "labs": [{"chinese_name": "总胆红素", "abbreviation": "TBIL", "value": "32.55", "unit": "μmol/L", "direction": "↑"}],
+  "exam_orders": [{"name": "生化（22）", "cost": 360}],
+  "source_pdf": "filename.pdf",
+  "source_pages": [0, 1, 2],
+  "extraction_confidence": 1.0
+}
+```
+
+Use `qualifier` field on diagnoses for text after `|` or in `[]` brackets (e.g. `{"name": "偏头痛不伴有先兆", "qualifier": "普通偏头痛"}`).
+
+### Step 4: Save JSON and write vault
+
+Save the `VisitRecord[]` array to `/tmp/medrec_extracted_<timestamp>.json`, then:
 
 ```bash
-/home/nan/Desktop/cases/medical-record-obsidian/.venv/bin/medrec update \
-    --pdf <PDF_PATH> --vault <VAULT_PATH>
+$MEDREC update --from-json <JSON_PATH> --vault <VAULT_PATH> --pdf <PDF_PATH>
 ```
 
-### Modes
+### Step 5: Report results
 
-| Flag | Behavior |
-|------|----------|
-| (none) | Extract and write immediately |
-| `--dry-run` | Print summary of what would be written, no files touched |
-| `--review` | Print extracted data, ask for confirmation before writing |
-| `--config <path>` | Use custom config YAML |
-| `--language zh-CN` | Set OCR language (default: zh-CN) |
-| `-v` | Verbose/debug logging |
+Tell the user what was created: number of patients, visits, topic notes, and the vault path.
 
-## Recommended workflow
+## Privacy — CRITICAL
 
-```bash
-MEDREC=/home/nan/Desktop/cases/medical-record-obsidian/.venv/bin/medrec
-
-# 1. Inspect first (always)
-$MEDREC inspect --pdf ~/records/门诊病历.pdf
-
-# 2. Dry run to preview
-$MEDREC update --pdf ~/records/门诊病历.pdf --vault ~/ObsidianVault --dry-run
-
-# 3. Review and confirm
-$MEDREC update --pdf ~/records/门诊病历.pdf --vault ~/ObsidianVault --review
-
-# 4. Direct update (when confident)
-$MEDREC update --pdf ~/records/门诊病历.pdf --vault ~/ObsidianVault
-```
-
-## Privacy rules — CRITICAL
-
-- Do NOT upload PDFs, extracted text, or patient data to any remote server
-- Do NOT call cloud OCR, cloud LLM APIs, or telemetry services
-- All processing must run locally
-- Source PDFs are copied into the vault's Sources/pdfs/ folder (local only)
-
-## Vault output structure
-
-```
-Medical Records/
-  Patients/{PatientName}.md
-  Visits/{PatientName}/{YYYY-MM-DD}__{pdf_stem}.md
-  Topics/
-    Diseases/{Name}.md
-    Symptoms/{Name}.md
-    Medications/{Name}.md
-    Herbs/{Name}.md
-    Lab Indicators/{Name}.md
-    TCM Patterns/{Name}.md
-  Relations/{A}__shares_symptom__{B}.md
-  Sources/
-    manifests/{pdf_stem}.json
-    ocr/{pdf_stem}/page_001.txt
-    pdfs/{pdf_name}
-```
+- Never upload PDFs, patient data, or extracted text to any remote service
+- All processing is local (rendering + vault writing in Python, extraction in the local LLM session)

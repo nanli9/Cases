@@ -1,6 +1,7 @@
 # Medical record data - NEVER commit
 *.pdf
 *.PDF
+input/
 output/
 vault/
 test-vault/

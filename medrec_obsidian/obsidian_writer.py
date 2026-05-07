@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from datetime import date
@@ -72,6 +71,9 @@ def write_vault(
         else:
             stats["topic_notes_updated"] += 1
 
+    # Write MOC (Map of Content) hub note for graph navigation
+    _write_moc(visits, keywords, vault_path, config)
+
     # Write sources
     if source_pdf_path and source_pdf_path.exists():
         _write_sources(visits, source_pdf_path, vault_path, config, manifest)
@@ -94,8 +96,6 @@ def _ensure_vault_dirs(vault_path: Path, config: Config) -> None:
         root / obs.topics_folder / obs.lab_indicators_subfolder,
         root / obs.topics_folder / obs.tcm_patterns_subfolder,
         root / obs.relations_folder,
-        root / obs.sources_folder / "manifests",
-        root / obs.sources_folder / "ocr",
         root / obs.sources_folder / "pdfs",
     ]
     for d in dirs:
@@ -447,61 +447,61 @@ def _write_patient_note(
     lines.append(f"**性别**: {first.sex.value} | **门诊号**: {', '.join(reg_numbers)}")
     lines.append("")
 
-    # Current keyword summary
-    lines.append("## Current keyword summary")
+    # 关键词汇总
+    lines.append("## 关键词汇总")
     lines.append("")
 
     if all_western_diags or all_tcm_diags:
-        lines.append("Diseases:")
+        lines.append("疾病：")
         for d in all_western_diags + all_tcm_diags:
             lines.append(f"- [[{d}]]")
         lines.append("")
 
     if all_symptoms:
-        lines.append("Symptoms:")
+        lines.append("症状：")
         for s in all_symptoms:
             lines.append(f"- [[{s}]]")
         lines.append("")
 
     if all_medications:
-        lines.append("Medications:")
+        lines.append("药物：")
         for m in all_medications:
             lines.append(f"- [[{m}]]")
         lines.append("")
 
     if all_herbs:
-        lines.append("Herbs:")
+        lines.append("中药：")
         for h in all_herbs:
             lines.append(f"- [[{h}]]")
         lines.append("")
 
-    # Visits
-    lines.append("## Visits")
+    # 就诊记录
+    lines.append("## 就诊记录")
     lines.append("")
     for v in sorted(visits, key=lambda x: x.visit_date, reverse=True):
         pdf_stem = Path(v.source_pdf).stem if v.source_pdf else "unknown"
         visit_link = f"{v.patient_name}/{v.visit_date.isoformat()}__{sanitize_filename(pdf_stem)}"
         diags = ", ".join(d.name for d in v.tcm_diagnoses + v.western_diagnoses)
         lines.append(
-            f"### {v.visit_date.isoformat()} -- {v.hospital}"
+            f"### {v.visit_date.isoformat()} — {v.hospital}"
         )
         lines.append("")
-        lines.append(f"Source: [[{visit_link}]]")
-        lines.append(f"Pages: {_format_page_range(v.source_pages)}")
-        lines.append(f"Extraction confidence: {_confidence_label(v.extraction_confidence)}")
+        lines.append(f"来源：[[{visit_link}]]")
+        lines.append(f"页码：{_format_page_range(v.source_pages)}")
+        lines.append(f"提取可信度：{_confidence_label(v.extraction_confidence)}")
         lines.append("")
         if v.chief_complaint:
-            lines.append(f"#### Chief complaint")
+            lines.append(f"#### 主诉")
             lines.append(v.chief_complaint)
             lines.append("")
         if diags:
-            lines.append(f"#### Diagnoses")
+            lines.append(f"#### 诊断")
             if v.tcm_diagnoses:
-                lines.append("TCM:")
+                lines.append("中医：")
                 for d in v.tcm_diagnoses:
                     lines.append(f"- [[{d.name}]]")
             if v.western_diagnoses:
-                lines.append("Western:")
+                lines.append("西医：")
                 for d in v.western_diagnoses:
                     lines.append(f"- [[{d.name}]]")
             lines.append("")
@@ -571,6 +571,70 @@ def _write_topic_note(
     return is_new
 
 
+def _write_moc(
+    visits: list[VisitRecord],
+    keywords: list[Keyword],
+    vault_path: Path,
+    config: Config,
+) -> None:
+    """Write a Map of Content hub note for graph navigation."""
+    obs = config.obsidian
+    root = config.vault_root(vault_path)
+    tag_prefix = obs.tag_prefix
+
+    filepath = root / "知识图谱总览.md"
+
+    lines: list[str] = []
+
+    frontmatter = {
+        "type": "moc",
+        "tags": [f"{tag_prefix}/moc"],
+        "created": today_str(),
+    }
+    lines.append("---")
+    lines.append(
+        yaml.dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip()
+    )
+    lines.append("---")
+    lines.append("")
+    lines.append("# 知识图谱总览")
+    lines.append("")
+
+    # Patients
+    patients = _group_visits_by_patient(visits)
+    lines.append("## 患者")
+    lines.append("")
+    for name, pvs in patients.items():
+        dates = ", ".join(v.visit_date.isoformat() for v in sorted(pvs, key=lambda x: x.visit_date))
+        lines.append(f"- [[{name}]]（{dates}）")
+    lines.append("")
+
+    # Group keywords by type
+    by_type: dict[KeywordType, list[Keyword]] = {}
+    for kw in keywords:
+        by_type.setdefault(kw.type, []).append(kw)
+
+    type_labels = {
+        KeywordType.DISEASE: "疾病",
+        KeywordType.SYMPTOM: "症状",
+        KeywordType.MEDICATION: "药物",
+        KeywordType.HERB: "中药",
+        KeywordType.LAB_INDICATOR: "化验指标",
+        KeywordType.TCM_PATTERN: "中医证型",
+    }
+
+    for ktype, label in type_labels.items():
+        kws = by_type.get(ktype, [])
+        if kws:
+            lines.append(f"## {label}")
+            lines.append("")
+            for kw in sorted(kws, key=lambda k: k.term):
+                lines.append(f"- [[{kw.term}]]")
+            lines.append("")
+
+    filepath.write_text("\n".join(lines), encoding="utf-8")
+
+
 def _write_sources(
     visits: list[VisitRecord],
     source_pdf_path: Path,
@@ -578,32 +642,13 @@ def _write_sources(
     config: Config,
     manifest: Optional[ProcessingManifest] = None,
 ) -> None:
-    """Write source files: copy PDF, save OCR text, save manifest."""
-    obs = config.obsidian
+    """Write source files: copy PDF to vault."""
     sources_dir = config.sources_dir(vault_path)
 
     # Copy PDF to Sources/pdfs/
     pdf_dest = sources_dir / "pdfs" / source_pdf_path.name
     if not pdf_dest.exists():
         shutil.copy2(str(source_pdf_path), str(pdf_dest))
-
-    # Save OCR text per page
-    pdf_stem = source_pdf_path.stem
-    ocr_dir = sources_dir / "ocr" / sanitize_filename(pdf_stem)
-    ocr_dir.mkdir(parents=True, exist_ok=True)
-
-    for visit in visits:
-        for page_idx, text in visit.raw_text_by_page.items():
-            page_file = ocr_dir / f"page_{page_idx + 1:03d}.txt"
-            page_file.write_text(text, encoding="utf-8")
-
-    # Save manifest
-    if manifest:
-        manifest_file = sources_dir / "manifests" / f"{sanitize_filename(pdf_stem)}.json"
-        manifest_file.write_text(
-            manifest.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
 
 
 def _group_visits_by_patient(visits: list[VisitRecord]) -> dict[str, list[VisitRecord]]:
@@ -633,8 +678,8 @@ def _format_page_range(pages: list[int]) -> str:
 def _confidence_label(conf: float) -> str:
     """Convert confidence float to a human-readable label."""
     if conf >= 0.9:
-        return "high"
+        return "高"
     elif conf >= 0.7:
-        return "medium"
+        return "中"
     else:
-        return "low"
+        return "低"

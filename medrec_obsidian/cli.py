@@ -1,33 +1,39 @@
-"""CLI entry point for medrec: medical record PDF to Obsidian vault."""
+"""CLI entry point for medrec: medical record PDF to Obsidian vault.
+
+Pipeline: PDF → render PNGs → LLM vision extracts JSON → write vault.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from pathlib import Path
 from typing import Optional
 
 import click
+from pydantic import TypeAdapter
 from rich.console import Console
 from rich.table import Table
 
 from .config import Config
-from .extractor import extract_all, extract_keywords, extract_relations
+from .extractor import extract_keywords, extract_relations
 from .graph_builder import build_graph
 from .models import ProcessingManifest, VisitRecord
 from .obsidian_writer import write_vault
-from .parser import group_pages, parse_visit
-from .pdf_reader import read_pdf
+from .pdf_reader import render_pdf_pages, get_pdf_page_count
 from .utils import today_str
 
 console = Console()
 logger = logging.getLogger("medrec")
 
+VisitRecordList = TypeAdapter(list[VisitRecord])
+
 
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging.")
 def main(verbose: bool) -> None:
-    """medrec: Local-only medical record PDF to Obsidian vault ingestion."""
+    """medrec: Medical record PDF to Obsidian vault ingestion via LLM vision."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -37,69 +43,58 @@ def main(verbose: bool) -> None:
 
 @main.command()
 @click.option("--pdf", required=True, type=click.Path(exists=True), help="Path to the medical record PDF.")
+@click.option("--output-dir", required=True, type=click.Path(), help="Directory to write rendered PNG images.")
+@click.option("--dpi", default=200, help="Render DPI (default: 200).")
+def render(pdf: str, output_dir: str, dpi: int) -> None:
+    """Render PDF pages as PNG images for LLM vision extraction."""
+    pdf_path = Path(pdf).resolve()
+    out_dir = Path(output_dir).resolve()
+
+    console.print(f"Rendering: [bold]{pdf_path.name}[/bold] → {out_dir}")
+
+    image_paths = render_pdf_pages(pdf_path, out_dir, dpi=dpi)
+
+    console.print(f"  Rendered [bold]{len(image_paths)}[/bold] pages")
+    for p in image_paths:
+        console.print(f"    {p}")
+
+    console.print(f"\n[green]Done.[/green] Feed these images to an LLM, extract VisitRecord JSON, then run:")
+    console.print(f"  medrec update --from-json <extracted.json> --vault <vault_path>")
+
+
+@main.command()
+@click.option("--pdf", type=click.Path(exists=True), default=None, help="Path to the source PDF (for provenance).")
+@click.option("--from-json", "json_path", required=True, type=click.Path(exists=True), help="Path to JSON file with extracted VisitRecord[] data.")
 @click.option("--vault", required=True, type=click.Path(), help="Path to the Obsidian vault.")
 @click.option("--config", "config_path", type=click.Path(exists=True), default=None, help="Path to config YAML.")
 @click.option("--dry-run", is_flag=True, help="Print what would be done without writing files.")
 @click.option("--review", is_flag=True, help="Print extracted data for review before writing.")
-@click.option("--language", default="zh-CN", help="OCR language (default: zh-CN).")
 def update(
-    pdf: str,
+    pdf: Optional[str],
+    json_path: str,
     vault: str,
     config_path: Optional[str],
     dry_run: bool,
     review: bool,
-    language: str,
 ) -> None:
-    """Update an Obsidian vault with data from a medical record PDF."""
-    pdf_path = Path(pdf).resolve()
+    """Update an Obsidian vault with LLM-extracted visit data."""
     vault_path = Path(vault).resolve()
     cfg = Config.load(Path(config_path) if config_path else None)
-    cfg.language = language
 
-    console.print(f"Processing: [bold]{pdf_path.name}[/bold]")
+    # Load visit records from JSON
+    json_file = Path(json_path).resolve()
+    console.print(f"Loading visits from: [bold]{json_file.name}[/bold]")
 
-    # Step 1: Read PDF
-    console.print("  Extracting text...", end=" ")
-    pages = read_pdf(pdf_path, cfg)
-    text_pages = sum(1 for p in pages if p.extraction_method == "text_layer")
-    ocr_pages = sum(1 for p in pages if p.extraction_method == "ocr")
+    raw = json_file.read_text(encoding="utf-8")
+    visits = VisitRecordList.validate_json(raw)
+
     console.print(
-        f"{len(pages)} pages (text layer: {text_pages}, OCR: {ocr_pages})"
+        f"  Loaded [bold]{len(visits)}[/bold] visit(s) "
+        f"for [bold]{len(set(v.patient_name for v in visits))}[/bold] patient(s)"
     )
 
-    # Step 2: Group pages
-    console.print("  Grouping pages...", end=" ")
-    groups = group_pages(pages, cfg)
-    console.print(f"{len(groups)} visit record(s)")
-
-    # Step 3: Parse and extract
-    console.print("  Parsing sections...", end=" ")
-    visits: list[VisitRecord] = []
-    hospital = ""  # auto-detect from first page
-    for group in groups:
-        visit = parse_visit(group, pdf_path.name, hospital)
-        visit = extract_all(visit)
-        visits.append(visit)
-    console.print(f"{len(visits)} complete")
-
-    # Count unique patients
-    patient_names = set(v.patient_name for v in visits)
-    console.print(
-        f"  Found: [bold]{len(patient_names)}[/bold] patient(s), "
-        f"[bold]{len(visits)}[/bold] visit(s)"
-    )
-
-    # Step 4: Print summary
+    # Print summary
     _print_visit_summary(visits)
-
-    # Check for warnings
-    all_warnings: list[str] = []
-    for v in visits:
-        all_warnings.extend(v.warnings)
-    if all_warnings:
-        console.print(f"\n  [yellow]Warnings ({len(all_warnings)}):[/yellow]")
-        for w in all_warnings:
-            console.print(f"    - {w}")
 
     if dry_run:
         console.print("\n  [cyan]DRY RUN -- no files written.[/cyan]")
@@ -111,27 +106,26 @@ def update(
             console.print("  Aborted.")
             return
 
-    # Step 5: Extract keywords and relations
+    # Extract keywords and relations
     keywords = extract_keywords(visits)
     relations = extract_relations(visits)
 
-    # Step 6: Build manifest
+    # Build manifest
+    pdf_path = Path(pdf).resolve() if pdf else None
+    total_pages = get_pdf_page_count(pdf_path) if pdf_path else 0
+    patient_names = sorted(set(v.patient_name for v in visits))
+
     manifest = ProcessingManifest(
-        source_pdf=pdf_path.name,
+        source_pdf=pdf_path.name if pdf_path else json_file.stem,
         processing_date=today_str(),
-        total_pages=len(pages),
-        pages_processed=len(pages),
+        total_pages=total_pages,
+        pages_processed=total_pages,
         patients_found=len(patient_names),
         visits_extracted=len(visits),
-        duplicate_pages_removed=len(pages) - sum(len(g) for g in groups),
-        ocr_pages=ocr_pages,
-        text_layer_pages=text_pages,
-        warnings=all_warnings,
-        patients=sorted(patient_names),
-        confidence_by_page={p.pdf_page_index: p.confidence for p in pages},
+        patients=patient_names,
     )
 
-    # Step 7: Write vault
+    # Write vault
     console.print(f"\n  Writing to vault: [bold]{vault_path}[/bold]")
     stats = write_vault(
         visits, keywords, vault_path, cfg,
@@ -139,7 +133,7 @@ def update(
         manifest=manifest,
     )
 
-    # Step 8: Build graph
+    # Build graph
     relation_count = build_graph(relations, vault_path, cfg)
 
     # Print results
@@ -147,71 +141,28 @@ def update(
     console.print(f"    Patient notes: {stats['patient_notes_created']} created, {stats['patient_notes_updated']} updated")
     console.print(f"    Topic notes: {stats['topic_notes_created']} created, {stats['topic_notes_updated']} updated")
     console.print(f"    Relation notes: {relation_count}")
-    console.print(f"\n  [green]Done.[/green] {len(all_warnings)} warning(s).")
+    console.print(f"\n  [green]Done.[/green]")
 
 
 @main.command()
-@click.option("--pdf", required=True, type=click.Path(exists=True), help="Path to the medical record PDF.")
-@click.option("--config", "config_path", type=click.Path(exists=True), default=None, help="Path to config YAML.")
-@click.option("--language", default="zh-CN", help="OCR language (default: zh-CN).")
-def inspect(pdf: str, config_path: Optional[str], language: str) -> None:
-    """Inspect a medical record PDF without writing any files.
+@click.option("--from-json", "json_path", required=True, type=click.Path(exists=True), help="Path to JSON file with VisitRecord[] data.")
+def inspect(json_path: str) -> None:
+    """Inspect extracted visit data from a JSON file."""
+    json_file = Path(json_path).resolve()
 
-    Prints detected patients, page grouping, OCR confidence,
-    and detected diagnoses/symptoms/medications.
-    """
-    pdf_path = Path(pdf).resolve()
-    cfg = Config.load(Path(config_path) if config_path else None)
-    cfg.language = language
+    raw = json_file.read_text(encoding="utf-8")
+    visits = VisitRecordList.validate_json(raw)
 
-    console.print(f"Inspecting: [bold]{pdf_path.name}[/bold]")
+    console.print(f"Inspecting: [bold]{json_file.name}[/bold]")
+    console.print(f"  {len(visits)} visit(s) from {len(set(v.patient_name for v in visits))} patient(s)")
     console.print()
 
-    # Read PDF
-    pages = read_pdf(pdf_path, cfg)
-    text_pages = sum(1 for p in pages if p.extraction_method == "text_layer")
-    ocr_pages = sum(1 for p in pages if p.extraction_method == "ocr")
-
-    console.print(f"Pages: {len(pages)} (text layer: {text_pages}, OCR: {ocr_pages})")
-    console.print()
-
-    # Page-level confidence
-    if ocr_pages > 0:
-        console.print("[bold]OCR Confidence Summary:[/bold]")
-        table = Table(show_header=True)
-        table.add_column("Page")
-        table.add_column("Method")
-        table.add_column("Confidence")
-        for p in pages:
-            if p.extraction_method == "ocr":
-                conf_str = f"{p.confidence:.2f}"
-                table.add_row(str(p.pdf_page_index + 1), "OCR", conf_str)
-        console.print(table)
-        console.print()
-
-    # Group pages
-    groups = group_pages(pages, cfg)
-    total_dupes = len(pages) - sum(len(g) for g in groups)
-
-    console.print(f"[bold]Detected {len(groups)} visit record(s) from {len(set(g[0].header.patient_name for g in groups))} patient(s)[/bold]")
-    if total_dupes > 0:
-        console.print(f"  [yellow]Duplicate pages removed: {total_dupes}[/yellow]")
-    console.print()
-
-    # Parse and show per-visit details
-    for i, group in enumerate(groups, 1):
-        header = group[0].header
-        page_nums = [str(p.pdf_page_index + 1) for p in group]
-
-        console.print(f"[bold]Visit {i}: {header.patient_name}[/bold] ({header.sex.value}/{header.age}岁)")
-        console.print(f"  Date: {header.visit_date.isoformat()}")
-        console.print(f"  Department: {header.department}")
-        console.print(f"  Reg#: {header.registration_number}")
-        console.print(f"  Pages: {', '.join(page_nums)}")
-
-        # Parse and extract for inspection
-        visit = parse_visit(group, pdf_path.name)
-        visit = extract_all(visit)
+    for i, visit in enumerate(visits, 1):
+        console.print(f"[bold]Visit {i}: {visit.patient_name}[/bold] ({visit.sex.value}/{visit.age}岁)")
+        console.print(f"  Date: {visit.visit_date.isoformat()}")
+        console.print(f"  Department: {visit.department}")
+        console.print(f"  Reg#: {visit.registration_number}")
+        console.print(f"  Pages: {', '.join(str(p + 1) for p in visit.source_pages)}")
 
         if visit.chief_complaint:
             console.print(f"  Chief complaint: {visit.chief_complaint[:80]}")
@@ -244,13 +195,16 @@ def inspect(pdf: str, config_path: Optional[str], language: str) -> None:
         if visit.labs:
             console.print(f"  Lab results: {len(visit.labs)} items")
 
-        if visit.warnings:
-            for w in visit.warnings:
-                console.print(f"  [yellow]WARNING: {w}[/yellow]")
-
         console.print()
 
-    console.print("[green]Inspection complete. No files written.[/green]")
+    console.print("[green]Inspection complete.[/green]")
+
+
+@main.command()
+def schema() -> None:
+    """Print the VisitRecord JSON schema for LLM extraction prompts."""
+    schema_json = VisitRecordList.json_schema()
+    console.print_json(json.dumps(schema_json, indent=2, ensure_ascii=False))
 
 
 def _print_visit_summary(visits: list[VisitRecord]) -> None:

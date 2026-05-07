@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 
 # Relation type labels for display
 RELATION_LABELS: dict[RelationType, str] = {
-    RelationType.DISEASE_HAS_SYMPTOM: "has_symptom",
-    RelationType.DISEASE_HAS_INDICATOR: "has_indicator",
-    RelationType.DISEASE_TREATED_BY_MEDICATION: "treated_by",
-    RelationType.DISEASES_SHARE_SYMPTOM: "shares_symptom",
-    RelationType.PATIENT_HAS_DISEASE: "has_disease",
-    RelationType.PATIENT_HAS_SYMPTOM: "has_symptom",
+    RelationType.DISEASE_HAS_SYMPTOM: "症状",
+    RelationType.DISEASE_HAS_INDICATOR: "指标",
+    RelationType.DISEASE_TREATED_BY_MEDICATION: "治疗",
+    RelationType.DISEASES_SHARE_SYMPTOM: "共同症状",
+    RelationType.PATIENT_HAS_DISEASE: "疾病",
+    RelationType.PATIENT_HAS_SYMPTOM: "症状",
 }
 
 
@@ -91,23 +91,23 @@ def _write_relation_note(
     lines.append("")
 
     # Title
-    lines.append(f"# [[{rel.source_term}]] -- {label} -- [[{rel.target_term}]]")
+    lines.append(f"# [[{rel.source_term}]] — {label} — [[{rel.target_term}]]")
     lines.append("")
 
     # Description
     if rel.relation_type == RelationType.DISEASES_SHARE_SYMPTOM:
         lines.append(
-            f"[[{rel.source_term}]] and [[{rel.target_term}]] share common symptoms."
+            f"[[{rel.source_term}]] 与 [[{rel.target_term}]] 存在共同症状。"
         )
     elif rel.relation_type == RelationType.DISEASE_HAS_SYMPTOM:
         lines.append(
-            f"[[{rel.source_term}]] presents with [[{rel.target_term}]]."
+            f"[[{rel.source_term}]] 表现为 [[{rel.target_term}]]。"
         )
     lines.append("")
 
     # Evidence
     if rel.evidence:
-        lines.append("## Evidence")
+        lines.append("## 证据")
         lines.append("")
         for ev in rel.evidence:
             lines.append(f"- {ev}")

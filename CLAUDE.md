@@ -2,27 +2,33 @@
 
 ## Project overview
 
-Local-only medical record PDF to Obsidian vault ingestion tool. Processes Chinese outpatient medical records (TCM + Western medicine) and generates an interlinked Obsidian knowledge vault.
+Medical record PDF to Obsidian vault ingestion tool. Renders PDF pages as images, uses LLM vision (Claude Code / Codex) to extract structured data, and generates an interlinked Obsidian knowledge vault.
 
 ## Setup
 
 ```bash
-cd /home/nan/Desktop/cases/medical-record-obsidian
 python3 -m venv .venv
 .venv/bin/pip install -e .
-```
-
-System dependency (required for image-based PDFs):
-```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng
 ```
 
 ## Running commands
 
 Always use the project venv:
 ```bash
-.venv/bin/medrec inspect --pdf <path>
-.venv/bin/medrec update --pdf <path> --vault <path>
+.venv/bin/medrec render --pdf input/<file>.pdf --output-dir /tmp/medrec_pages
+.venv/bin/medrec update --from-json <json> --vault vault/ [--pdf input/<file>.pdf]
+.venv/bin/medrec inspect --from-json <json>
+.venv/bin/medrec schema
+```
+
+## Project layout
+
+```
+input/          ← drop PDF files here
+vault/          ← Obsidian vault output goes here
+medrec_obsidian/ ← Python package source
+tests/          ← pytest test suite
+skills/         ← LLM agent skill definitions
 ```
 
 ## Running tests
@@ -33,26 +39,29 @@ Always use the project venv:
 
 ## Privacy constraints
 
-- ALL processing is local. No network requests ever.
-- Never upload PDFs, patient names, medical text, or OCR output to any remote service.
-- No cloud OCR, no LLM APIs (OpenAI, Anthropic, Google, Azure), no telemetry.
+- Never upload PDFs, patient names, medical text to any remote service.
+- LLM vision extraction happens within the local Claude Code / Codex session.
+- No cloud OCR, no telemetry.
 - This is for organizing records, not for medical advice.
 
 ## Architecture
 
 ```
-PDF → pdf_reader.py → PageText[] → parser.py → VisitRecord[]
-  → extractor.py → enriched VisitRecord[]
+PDF → pdf_reader.py (render PNGs) → LLM vision reads images
+  → VisitRecord[] JSON → medrec update --from-json
   → obsidian_writer.py → Obsidian vault files
   → graph_builder.py → Relation notes
 ```
 
-All entity extraction is deterministic (regex + dictionary). No LLM-based extraction.
+The LLM (Claude Code / Codex) does the extraction — no OCR, no regex parsing.
+The Python tool handles rendering and vault writing only.
 
 ## Key files
 
-- `medrec_obsidian/models.py` — Pydantic data models
-- `medrec_obsidian/parser.py` — page grouping, dedup, section splitting
-- `medrec_obsidian/extractor.py` — regex-based extraction of diagnoses, herbs, meds, labs
+- `medrec_obsidian/models.py` — Pydantic data models (VisitRecord, Herb, LabResult, etc.)
+- `medrec_obsidian/pdf_reader.py` — PyMuPDF page rendering to PNG
+- `medrec_obsidian/extractor.py` — keyword/relation extraction from VisitRecords
 - `medrec_obsidian/obsidian_writer.py` — Obsidian markdown + YAML frontmatter + wikilinks
-- `medrec_obsidian/cli.py` — Click CLI entry point
+- `medrec_obsidian/graph_builder.py` — disease-symptom relation notes
+- `medrec_obsidian/cli.py` — Click CLI: render, update, inspect, schema
+- `skills/medical-record-obsidian/SKILL.md` — Full workflow instructions for LLM agents
