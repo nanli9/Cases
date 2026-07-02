@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from medrec_obsidian.config import Config
-from medrec_obsidian.models import Keyword, KeywordType, VisitRecord
+from medrec_obsidian.models import Keyword, KeywordOccurrence, KeywordType, VisitRecord
 from medrec_obsidian.obsidian_writer import write_vault, _build_visit_note_content
 
 
@@ -62,19 +62,14 @@ class TestVaultWrite:
         self, sample_visit_record: VisitRecord, tmp_path: Path
     ):
         config = Config()
+        occ = KeywordOccurrence(
+            patient="测试患者",
+            visit_link="测试患者/2026-05-04__test",
+            visit_date="2026-05-04",
+        )
         keywords = [
-            Keyword(
-                term="眩晕",
-                type=KeywordType.DISEASE,
-                linked_patients=["测试患者"],
-                linked_visits=["测试患者_2026-05-04"],
-            ),
-            Keyword(
-                term="姜半夏",
-                type=KeywordType.HERB,
-                linked_patients=["测试患者"],
-                linked_visits=["测试患者_2026-05-04"],
-            ),
+            Keyword(term="眩晕", type=KeywordType.DISEASE, occurrences=[occ]),
+            Keyword(term="姜半夏", type=KeywordType.HERB, occurrences=[occ]),
         ]
 
         stats = write_vault(
@@ -86,7 +81,7 @@ class TestVaultWrite:
         assert (root / "Visits").is_dir()
         assert (root / "Topics" / "Diseases").is_dir()
         assert (root / "Topics" / "Herbs").is_dir()
-        assert (root / "Relations").is_dir()
+        assert (root / "Formulas").is_dir()
 
     def test_creates_visit_note(
         self, sample_visit_record: VisitRecord, tmp_path: Path
@@ -120,7 +115,13 @@ class TestVaultWrite:
             Keyword(
                 term="眩晕",
                 type=KeywordType.DISEASE,
-                linked_patients=["测试患者"],
+                occurrences=[
+                    KeywordOccurrence(
+                        patient="测试患者",
+                        visit_link="测试患者/2026-05-04__test",
+                        visit_date="2026-05-04",
+                    )
+                ],
             ),
         ]
         write_vault([sample_visit_record], keywords, tmp_path, config)
@@ -148,3 +149,49 @@ class TestVaultWrite:
         assert "patient_notes_created" in stats
         assert stats["visit_notes_created"] == 1
         assert stats["patient_notes_created"] == 1
+
+    def test_creates_formula_note(
+        self, sample_visit_record: VisitRecord, tmp_path: Path
+    ):
+        config = Config()
+        stats = write_vault([sample_visit_record], [], tmp_path, config)
+        # sample record has formula 43622340
+        formula_file = tmp_path / "Medical Records" / "Formulas" / "方-43622340.md"
+        assert formula_file.exists()
+        assert stats["formula_notes_created"] == 1
+        content = formula_file.read_text(encoding="utf-8")
+        assert "type: formula" in content
+        assert "[[姜半夏]]" in content
+
+    def test_visit_links_in_topic_notes_resolve(
+        self, sample_visit_record: VisitRecord, tmp_path: Path
+    ):
+        """Topic-note occurrence links must match a real visit-note file path."""
+        from medrec_obsidian.extractor import extract_keywords
+
+        config = Config()
+        keywords = extract_keywords([sample_visit_record])
+        write_vault([sample_visit_record], keywords, tmp_path, config)
+
+        root = tmp_path / "Medical Records"
+        disease = (root / "Topics" / "Diseases" / "眩晕.md").read_text(encoding="utf-8")
+        # The link target used in the topic note...
+        assert "测试患者/2026-05-04__test" in disease
+        # ...must correspond to an actual file on disk.
+        assert (root / "Visits" / "测试患者" / "2026-05-04__test.md").exists()
+
+    def test_herb_note_is_bidirectional(
+        self, sample_visit_record: VisitRecord, tmp_path: Path
+    ):
+        from medrec_obsidian.extractor import extract_keywords
+
+        config = Config()
+        keywords = extract_keywords([sample_visit_record])
+        write_vault([sample_visit_record], keywords, tmp_path, config)
+
+        herb = (
+            tmp_path / "Medical Records" / "Topics" / "Herbs" / "姜半夏.md"
+        ).read_text(encoding="utf-8")
+        # Herb links back to the formula it belongs to and its co-herb.
+        assert "[[方-43622340]]" in herb
+        assert "[[桂枝]]" in herb

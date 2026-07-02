@@ -10,8 +10,10 @@ test-vault/
 *.ocr.txt
 ocr_output/
 
-# Extracted records
+# Extracted records (contain patient data — never commit)
 extracted/
+data/
+*.extracted.json
 
 # Generated Obsidian vault contents
 Medical Records/

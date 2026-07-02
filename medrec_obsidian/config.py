@@ -16,6 +16,7 @@ class RenderConfig(BaseModel):
 class ObsidianConfig(BaseModel):
     root_folder: str = "Medical Records"
     patients_folder: str = "Patients"
+    doctors_folder: str = "Doctors"
     visits_folder: str = "Visits"
     topics_folder: str = "Topics"
     diseases_subfolder: str = "Diseases"
@@ -24,7 +25,8 @@ class ObsidianConfig(BaseModel):
     herbs_subfolder: str = "Herbs"
     lab_indicators_subfolder: str = "Lab Indicators"
     tcm_patterns_subfolder: str = "TCM Patterns"
-    relations_folder: str = "Relations"
+    formulas_folder: str = "Formulas"
+    maps_folder: str = "Maps"
     sources_folder: str = "Sources"
     tag_prefix: str = "medical-record"
 
@@ -55,14 +57,20 @@ class Config(BaseModel):
     def patients_dir(self, vault_path: Path) -> Path:
         return self.vault_root(vault_path) / self.obsidian.patients_folder
 
+    def doctors_dir(self, vault_path: Path) -> Path:
+        return self.vault_root(vault_path) / self.obsidian.doctors_folder
+
     def visits_dir(self, vault_path: Path) -> Path:
         return self.vault_root(vault_path) / self.obsidian.visits_folder
 
     def topics_dir(self, vault_path: Path, subfolder: str) -> Path:
         return self.vault_root(vault_path) / self.obsidian.topics_folder / subfolder
 
-    def relations_dir(self, vault_path: Path) -> Path:
-        return self.vault_root(vault_path) / self.obsidian.relations_folder
+    def formulas_dir(self, vault_path: Path) -> Path:
+        return self.vault_root(vault_path) / self.obsidian.formulas_folder
+
+    def maps_dir(self, vault_path: Path) -> Path:
+        return self.vault_root(vault_path) / self.obsidian.maps_folder
 
     def sources_dir(self, vault_path: Path) -> Path:
         return self.vault_root(vault_path) / self.obsidian.sources_folder

@@ -50,7 +50,6 @@ skills/         ← LLM agent skill definitions
 PDF → pdf_reader.py (render PNGs) → LLM vision reads images
   → VisitRecord[] JSON → medrec update --from-json
   → obsidian_writer.py → Obsidian vault files
-  → graph_builder.py → Relation notes
 ```
 
 The LLM (Claude Code / Codex) does the extraction — no OCR, no regex parsing.
@@ -60,8 +59,7 @@ The Python tool handles rendering and vault writing only.
 
 - `medrec_obsidian/models.py` — Pydantic data models (VisitRecord, Herb, LabResult, etc.)
 - `medrec_obsidian/pdf_reader.py` — PyMuPDF page rendering to PNG
-- `medrec_obsidian/extractor.py` — keyword/relation extraction from VisitRecords
-- `medrec_obsidian/obsidian_writer.py` — Obsidian markdown + YAML frontmatter + wikilinks
-- `medrec_obsidian/graph_builder.py` — disease-symptom relation notes
+- `medrec_obsidian/extractor.py` — keyword extraction from VisitRecords (paired occurrences with resolvable visit links)
+- `medrec_obsidian/obsidian_writer.py` — Obsidian markdown + YAML frontmatter + wikilinks; builds a cross-link index and writes patient/doctor/visit/formula/topic/MOC notes + graph config
 - `medrec_obsidian/cli.py` — Click CLI: render, update, inspect, schema
 - `skills/medical-record-obsidian/SKILL.md` — Full workflow instructions for LLM agents

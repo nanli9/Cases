@@ -5,9 +5,8 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import date
+from pathlib import Path
 from typing import Optional
-
-from rapidfuzz import fuzz
 
 
 def sanitize_filename(name: str) -> str:
@@ -26,6 +25,26 @@ def sanitize_filename(name: str) -> str:
     return cleaned if cleaned else "unnamed"
 
 
+# Characters that break Obsidian wikilinks or filenames, mapped to full-width
+# equivalents that are legal in both and keep the text readable.
+_LINK_UNSAFE = {
+    "/": "／", "\\": "＼", "#": "＃", "|": "｜", ":": "：",
+    "[": "［", "]": "］", "^": "＾", "<": "＜", ">": "＞",
+    "*": "＊", "?": "？", '"': "＂", "{": "｛", "}": "｝",
+}
+
+
+def link_safe(name: str) -> str:
+    """Make a term safe to use as both a note name and a wikilink target.
+
+    Replaces characters that Obsidian treats specially (#, /, |, etc.) with
+    full-width equivalents so the note filename and every [[link]] to it match.
+    """
+    for bad, good in _LINK_UNSAFE.items():
+        name = name.replace(bad, good)
+    return name
+
+
 def fuzzy_match(
     query: str, candidates: list[str], threshold: int = 85
 ) -> Optional[str]:
@@ -33,6 +52,8 @@ def fuzzy_match(
 
     Returns the best match above threshold, or None.
     """
+    from rapidfuzz import fuzz  # optional dependency, imported lazily
+
     if not candidates:
         return None
     best_score = 0
@@ -103,3 +124,24 @@ def chinese_char_ratio(text: str) -> float:
 def today_str() -> str:
     """Return today's date as YYYY-MM-DD string."""
     return date.today().isoformat()
+
+
+def visit_note_link(patient_name: str, visit_date_iso: str, source_pdf: str) -> str:
+    """Return the vault-relative wikilink target for a visit note.
+
+    Matches the path written by the writer: Visits/<patient>/<date>__<pdf_stem>.md
+    Obsidian resolves this partial path to the correct note.
+    """
+    stem = Path(source_pdf).stem if source_pdf else "unknown"
+    return f"{sanitize_filename(patient_name)}/{visit_date_iso}__{sanitize_filename(stem)}"
+
+
+def formula_note_name(formula_id: str, patient_name: str, visit_date_iso: str) -> str:
+    """Return the note name (and wikilink target) for a herbal formula.
+
+    Uses the prescription id when available (unique per prescription), else a
+    patient/date fallback. Prefixed with 方- so the node reads clearly in the graph.
+    """
+    if formula_id:
+        return f"方-{sanitize_filename(formula_id)}"
+    return f"方-{sanitize_filename(patient_name)}-{visit_date_iso}"

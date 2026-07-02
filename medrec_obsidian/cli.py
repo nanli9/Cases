@@ -17,8 +17,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import Config
-from .extractor import extract_keywords, extract_relations
-from .graph_builder import build_graph
+from .extractor import extract_keywords
 from .models import ProcessingManifest, VisitRecord
 from .obsidian_writer import write_vault
 from .pdf_reader import render_pdf_pages, get_pdf_page_count
@@ -106,9 +105,8 @@ def update(
             console.print("  Aborted.")
             return
 
-    # Extract keywords and relations
+    # Extract keywords
     keywords = extract_keywords(visits)
-    relations = extract_relations(visits)
 
     # Build manifest
     pdf_path = Path(pdf).resolve() if pdf else None
@@ -133,14 +131,12 @@ def update(
         manifest=manifest,
     )
 
-    # Build graph
-    relation_count = build_graph(relations, vault_path, cfg)
-
     # Print results
     console.print(f"    Visit notes: {stats['visit_notes_created']} created, {stats['visit_notes_updated']} updated")
     console.print(f"    Patient notes: {stats['patient_notes_created']} created, {stats['patient_notes_updated']} updated")
     console.print(f"    Topic notes: {stats['topic_notes_created']} created, {stats['topic_notes_updated']} updated")
-    console.print(f"    Relation notes: {relation_count}")
+    console.print(f"    Formula notes: {stats['formula_notes_created']} created, {stats['formula_notes_updated']} updated")
+    console.print(f"    Doctor notes: {stats['doctor_notes_created']} created, {stats['doctor_notes_updated']} updated")
     console.print(f"\n  [green]Done.[/green]")
 
 

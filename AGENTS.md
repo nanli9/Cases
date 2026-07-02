@@ -2,7 +2,7 @@
 
 ## Purpose
 
-CLI tool that ingests Chinese medical record PDFs into an Obsidian knowledge vault. Uses LLM vision to extract patient demographics, diagnoses (TCM + Western), symptoms, herbal prescriptions, medications, lab results, and builds an interlinked note graph.
+CLI tool that ingests Chinese medical record PDFs into an Obsidian knowledge vault. Uses LLM vision to extract patient demographics, diagnoses (TCM + Western), symptoms, herbal prescriptions, medications, lab results, and builds interlinked patient/visit/topic notes.
 
 ## Pipeline
 
@@ -19,9 +19,8 @@ The Python tool renders pages and writes the vault. The LLM (Claude Code / Codex
 | `models.py` | Pydantic data models (VisitRecord, Herb, LabResult, Diagnosis, etc.) |
 | `config.py` | YAML config loading with sensible defaults |
 | `pdf_reader.py` | PyMuPDF page rendering to PNG images |
-| `extractor.py` | Keyword and relation extraction from VisitRecords |
-| `obsidian_writer.py` | Markdown generation with YAML frontmatter and [[wikilinks]] |
-| `graph_builder.py` | Disease-symptom relation notes for Obsidian graph view |
+| `extractor.py` | Keyword extraction from VisitRecords (paired, resolvable occurrences) |
+| `obsidian_writer.py` | Cross-link index + markdown notes (patient/doctor/visit/formula/topic/MOC) with YAML frontmatter and [[wikilinks]] |
 | `cli.py` | Click CLI: `render`, `update`, `inspect`, `schema` |
 
 ## Coding Guidelines

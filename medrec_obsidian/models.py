@@ -27,43 +27,6 @@ class KeywordType(str, Enum):
     OTHER = "other"
 
 
-class RelationType(str, Enum):
-    DISEASE_HAS_SYMPTOM = "disease_has_symptom"
-    DISEASE_HAS_INDICATOR = "disease_has_indicator"
-    DISEASE_TREATED_BY_MEDICATION = "disease_treated_by_medication"
-    DISEASES_SHARE_SYMPTOM = "diseases_share_symptom"
-    PATIENT_HAS_DISEASE = "patient_has_disease"
-    PATIENT_HAS_SYMPTOM = "patient_has_symptom"
-
-
-# --- Page-level models ---
-
-
-class PageHeader(BaseModel):
-    """Demographics block extracted from the top of every page."""
-
-    patient_name: str
-    sex: Sex
-    age: int
-    visit_date: date
-    department: str
-    registration_number: str
-    fee_category: str = ""
-    document_id: Optional[str] = None
-    doctor_name: str = ""
-    page_number_in_record: int = 1
-
-
-class PageText(BaseModel):
-    """One page of extracted text with metadata."""
-
-    pdf_page_index: int  # 0-based index in the PDF
-    header: PageHeader
-    body_text: str  # text below demographics, above footer
-    extraction_method: str = "text_layer"  # "text_layer" or "ocr"
-    confidence: float = 1.0  # 0.0-1.0
-
-
 # --- Structured extraction sub-models ---
 
 
@@ -217,27 +180,26 @@ class VisitRecord(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class KeywordOccurrence(BaseModel):
+    """One appearance of a keyword in a specific visit.
+
+    Keeps patient and visit link paired so topic-note tables never mismatch rows.
+    """
+
+    patient: str
+    visit_link: str  # vault-relative wikilink target, e.g. "张三/2026-05-04__病历"
+    visit_date: str  # ISO date string
+    detail: str = ""  # optional per-occurrence detail (herb dosage, lab value, etc.)
+
+
 class Keyword(BaseModel):
     """An extracted keyword/entity for Obsidian topic notes."""
 
     term: str
     type: KeywordType = KeywordType.OTHER
     aliases: list[str] = Field(default_factory=list)
-    linked_patients: list[str] = Field(default_factory=list)
-    linked_visits: list[str] = Field(default_factory=list)
-    evidence_snippets: list[str] = Field(default_factory=list)
+    occurrences: list[KeywordOccurrence] = Field(default_factory=list)
     source_pages: list[int] = Field(default_factory=list)
-
-
-class Relation(BaseModel):
-    """A relationship between two entities."""
-
-    source_term: str
-    target_term: str
-    relation_type: RelationType
-    evidence: list[str] = Field(default_factory=list)
-    source_pages: list[int] = Field(default_factory=list)
-    confidence: float = 1.0
 
 
 class ProcessingManifest(BaseModel):
@@ -250,8 +212,6 @@ class ProcessingManifest(BaseModel):
     patients_found: int = 0
     visits_extracted: int = 0
     duplicate_pages_removed: int = 0
-    ocr_pages: int = 0
-    text_layer_pages: int = 0
     warnings: list[str] = Field(default_factory=list)
     patients: list[str] = Field(default_factory=list)
     confidence_by_page: dict[int, float] = Field(default_factory=dict)
