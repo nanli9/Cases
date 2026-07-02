@@ -38,3 +38,22 @@ class TestExtractKeywords:
         keywords = extract_keywords([sample_visit_record])
         herb = next(k for k in keywords if k.term == "姜半夏")
         assert herb.occurrences[0].detail == "12.00g"
+
+    def test_pattern_vs_disease_typing(self, sample_visits):
+        keywords = {k.term: k for k in extract_keywords(sample_visits)}
+        assert keywords["风寒证"].type == KeywordType.TCM_PATTERN  # ends in 证
+        assert keywords["感冒"].type == KeywordType.DISEASE
+        assert keywords["上呼吸道感染"].type == KeywordType.DISEASE
+
+    def test_multi_visit_occurrence_count(self, sample_visits):
+        keywords = {k.term: k for k in extract_keywords(sample_visits)}
+        # 桂枝 appears in all three visits (F001, F002, F003).
+        distinct = {o.visit_link for o in keywords["桂枝"].occurrences}
+        assert len(distinct) == 3
+
+    def test_lab_term_is_link_safe(self, sample_visits):
+        terms = {k.term for k in extract_keywords(sample_visits)}
+        # '/' and '#' normalized to full-width so filename == wikilink.
+        assert "谷草／谷丙比值" in terms
+        assert "中性粒细胞绝对值(NEUT＃)" in terms
+        assert not any("/" in t or "#" in t for t in terms)

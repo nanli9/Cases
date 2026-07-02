@@ -6,9 +6,16 @@ from pathlib import Path
 
 import pytest
 
+import json
+
 from medrec_obsidian.config import Config
 from medrec_obsidian.models import Keyword, KeywordOccurrence, KeywordType, VisitRecord
-from medrec_obsidian.obsidian_writer import write_vault, _build_visit_note_content
+from medrec_obsidian.obsidian_writer import (
+    write_vault,
+    _build_index,
+    _build_visit_note_content,
+    _merge_graph_config,
+)
 
 
 class TestVisitNoteContent:
@@ -155,8 +162,8 @@ class TestVaultWrite:
     ):
         config = Config()
         stats = write_vault([sample_visit_record], [], tmp_path, config)
-        # sample record has formula 43622340
-        formula_file = tmp_path / "Medical Records" / "Formulas" / "方-43622340.md"
+        # sample record has formula T0001
+        formula_file = tmp_path / "Medical Records" / "Formulas" / "方-T0001.md"
         assert formula_file.exists()
         assert stats["formula_notes_created"] == 1
         content = formula_file.read_text(encoding="utf-8")
@@ -193,5 +200,55 @@ class TestVaultWrite:
             tmp_path / "Medical Records" / "Topics" / "Herbs" / "姜半夏.md"
         ).read_text(encoding="utf-8")
         # Herb links back to the formula it belongs to and its co-herb.
-        assert "[[方-43622340]]" in herb
+        assert "[[方-T0001]]" in herb
         assert "[[桂枝]]" in herb
+
+
+class TestBuildIndex:
+    """Unit tests for the cross-link index."""
+
+    def test_herb_maps_to_formula_and_co_herbs(self, sample_visits):
+        idx = _build_index(sample_visits)
+        gz = idx["herb"]["桂枝"]
+        assert {"方-F001", "方-F002", "方-F003"} <= gz["formulas"]
+        assert "甘草" in gz["co_herbs"]
+        assert "桂枝" not in gz["co_herbs"]  # never lists itself
+
+    def test_pattern_aggregates_symptoms_and_formulas(self, sample_visits):
+        idx = _build_index(sample_visits)
+        p = idx["pattern"]["风寒证"]
+        assert "头痛" in p["symptoms"]
+        assert "方-F001" in p["formulas"]
+
+    def test_formula_records_diagnoses(self, sample_visits):
+        idx = _build_index(sample_visits)
+        f = idx["formulas"]["方-F001"]
+        assert f["patient"] == "张三"
+        assert "风寒证" in f["tcm"]
+        assert ("桂枝", "9.00g") in f["herbs"]
+
+
+class TestGraphConfig:
+    def test_merge_creates_color_groups(self, tmp_path):
+        config = Config()
+        (tmp_path / "Medical Records" / ".obsidian").mkdir(parents=True)
+        _merge_graph_config(tmp_path, config)
+        gj = json.loads(
+            (tmp_path / "Medical Records" / ".obsidian" / "graph.json").read_text(encoding="utf-8")
+        )
+        queries = {g["query"] for g in gj["colorGroups"]}
+        assert "tag:#medical-record/herb" in queries
+        assert "tag:#medical-record/formula" in queries
+
+    def test_merge_preserves_existing_keys(self, tmp_path):
+        config = Config()
+        obs = tmp_path / "Medical Records" / ".obsidian"
+        obs.mkdir(parents=True)
+        (obs / "graph.json").write_text(
+            json.dumps({"scale": 1.5, "colorGroups": [{"query": "tag:#custom", "color": {"a": 1, "rgb": 1}}]}),
+            encoding="utf-8",
+        )
+        _merge_graph_config(tmp_path, config)
+        gj = json.loads((obs / "graph.json").read_text(encoding="utf-8"))
+        assert gj["scale"] == 1.5  # user key preserved
+        assert any(g["query"] == "tag:#custom" for g in gj["colorGroups"])  # user group kept

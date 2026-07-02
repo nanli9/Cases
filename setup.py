@@ -13,6 +13,9 @@ setup(
         "rich>=13.0",
         "PyMuPDF>=1.24",
     ],
+    extras_require={
+        "dev": ["pytest>=7.0"],
+    },
     entry_points={
         "console_scripts": [
             "medrec=medrec_obsidian.cli:main",
