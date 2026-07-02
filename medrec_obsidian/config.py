@@ -74,3 +74,7 @@ class Config(BaseModel):
 
     def sources_dir(self, vault_path: Path) -> Path:
         return self.vault_root(vault_path) / self.obsidian.sources_folder
+
+    def records_store_path(self, vault_path: Path) -> Path:
+        """Return the path to the cumulative VisitRecord store (records.json)."""
+        return self.sources_dir(vault_path) / "records.json"

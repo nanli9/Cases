@@ -41,10 +41,44 @@ medrec update --from-json extracted.json --vault /path/to/ObsidianVault --pdf /p
 ```
 
 `update` options:
+- `--append` — accumulate across PDFs (see below)
 - `--dry-run` — print what would be written without touching the vault
 - `--review` — print extracted data for confirmation before writing
 - `--config path/to/config.yml` — custom configuration
 - `-v` / `--verbose` — enable debug logging
+
+### Accumulating across multiple PDFs
+
+By default `update` regenerates the aggregate notes (patient / topic / formula /
+doctor / MOC) from **only** the JSON you pass in — processing a second PDF on its
+own would rewrite those notes to reflect just that file.
+
+Use `--append` to build a cumulative vault instead. Each additional PDF is merged
+into a persistent master store at `Medical Records/Sources/records.json` (inside
+the gitignored vault, so patient data stays local), and the whole vault is
+regenerated from the full union — so aggregate notes correctly accumulate every
+patient and visit:
+
+```bash
+# First PDF
+medrec update --from-json caseA.json --vault /path/to/ObsidianVault --append
+# Each additional PDF merges into the store and re-aggregates everything
+medrec update --from-json caseB.json --vault /path/to/ObsidianVault --append
+```
+
+`update` prints `added / replaced / total` counts. A re-extraction of an already
+stored visit (same patient, date, 门诊号 and source PDF) **replaces** the stored
+copy rather than duplicating it, so corrections win. Removing a record from the
+store is out of scope — stale per-visit files are not deleted.
+
+### Preserving manual edits
+
+Regeneration keeps your hand edits to generated notes:
+
+- A free-text `## 笔记` section is preserved verbatim and re-appended.
+- The reference fields `性味` / `归经` / `功效分类` (emitted blank on herb notes as
+  a study template) are kept once you fill them in.
+- Any frontmatter key the generator does not itself produce is kept.
 
 ### Vault structure
 

@@ -60,6 +60,8 @@ The Python tool handles rendering and vault writing only.
 - `medrec_obsidian/models.py` — Pydantic data models (VisitRecord, Herb, LabResult, etc.)
 - `medrec_obsidian/pdf_reader.py` — PyMuPDF page rendering to PNG
 - `medrec_obsidian/extractor.py` — keyword extraction from VisitRecords (paired occurrences with resolvable visit links)
-- `medrec_obsidian/obsidian_writer.py` — Obsidian markdown + YAML frontmatter + wikilinks; builds a cross-link index and writes patient/doctor/visit/formula/topic/MOC notes + graph config
+- `medrec_obsidian/store.py` — cumulative master store of VisitRecords (`records.json`); merge/dedup for `update --append`
+- `medrec_obsidian/notes.py` — note writer that preserves manual edits (`## 笔记` sections + filled-in 性味/归经/功效分类 + unknown frontmatter keys)
+- `medrec_obsidian/obsidian_writer.py` — Obsidian markdown + YAML frontmatter + wikilinks; builds a cross-link index and writes patient/doctor/visit/formula/topic/MOC notes + graph config (all note writers route through `notes.write_note_preserving`)
 - `medrec_obsidian/cli.py` — Click CLI: render, update, inspect, schema
 - `skills/medical-record-obsidian/SKILL.md` — Full workflow instructions for LLM agents

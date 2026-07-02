@@ -20,6 +20,8 @@ The Python tool renders pages and writes the vault. The LLM (Claude Code / Codex
 | `config.py` | YAML config loading with sensible defaults |
 | `pdf_reader.py` | PyMuPDF page rendering to PNG images |
 | `extractor.py` | Keyword extraction from VisitRecords (paired, resolvable occurrences) |
+| `store.py` | Cumulative VisitRecord store (`records.json`); merge/dedup for `update --append` |
+| `notes.py` | Note writer preserving manual edits (`## 笔记` + filled-in 性味/归经/功效分类 + user frontmatter keys) |
 | `obsidian_writer.py` | Cross-link index + markdown notes (patient/doctor/visit/formula/topic/MOC) with YAML frontmatter and [[wikilinks]] |
 | `cli.py` | Click CLI: `render`, `update`, `inspect`, `schema` |
 
@@ -41,6 +43,8 @@ medrec render --pdf <path> --output-dir <dir>
 medrec update --from-json <json> --vault <path> [--pdf <path>]
 medrec update --from-json <json> --vault <path> --dry-run
 medrec update --from-json <json> --vault <path> --review
+# Accumulate across PDFs: merge into records.json, regenerate from the union
+medrec update --from-json <json> --vault <path> --append
 
 # Inspect extracted data
 medrec inspect --from-json <json>

@@ -18,6 +18,7 @@ from .models import (
     ProcessingManifest,
     VisitRecord,
 )
+from .notes import render_note, write_note_preserving
 from .utils import (
     formula_note_name,
     sanitize_filename,
@@ -154,19 +155,22 @@ def _write_visit_note(
     pdf_stem = Path(visit.source_pdf).stem if visit.source_pdf else "unknown"
     filename = f"{visit.visit_date.isoformat()}__{sanitize_filename(pdf_stem)}.md"
     filepath = patient_dir / filename
-    is_new = not filepath.exists()
 
-    # Build the note content
-    content = _build_visit_note_content(visit, config)
-    filepath.write_text(content, encoding="utf-8")
-
-    return is_new
+    frontmatter, title, body = _build_visit_note(visit, config)
+    return write_note_preserving(filepath, frontmatter, title, body)
 
 
 def _build_visit_note_content(visit: VisitRecord, config: Config) -> str:
-    """Build the full markdown content for a visit note."""
+    """Render a standalone visit note to markdown (no preservation merge)."""
+    frontmatter, title, body = _build_visit_note(visit, config)
+    return render_note(frontmatter, title, body)
+
+
+def _build_visit_note(
+    visit: VisitRecord, config: Config
+) -> tuple[dict, str, list[str]]:
+    """Build the (frontmatter, title, body_lines) for a visit note."""
     tag_prefix = config.obsidian.tag_prefix
-    lines: list[str] = []
 
     # YAML frontmatter
     frontmatter = {
@@ -193,14 +197,8 @@ def _build_visit_note_content(visit: VisitRecord, config: Config) -> str:
     if visit.document_id:
         frontmatter["document_id"] = visit.document_id
 
-    lines.append("---")
-    lines.append(yaml.dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip())
-    lines.append("---")
-    lines.append("")
-
-    # Title
-    lines.append(f"# {visit.patient_name} -- {visit.visit_date.isoformat()} 就诊记录")
-    lines.append("")
+    title = f"{visit.patient_name} -- {visit.visit_date.isoformat()} 就诊记录"
+    lines: list[str] = []
 
     # Metadata line
     meta_parts = [f"**门诊号**: {visit.registration_number}"]
@@ -414,7 +412,7 @@ def _build_visit_note_content(visit: VisitRecord, config: Config) -> str:
         lines.append("```")
         lines.append("")
 
-    return "\n".join(lines)
+    return frontmatter, title, lines
 
 
 def _write_patient_note(
@@ -429,7 +427,6 @@ def _write_patient_note(
     tag_prefix = obs.tag_prefix
 
     filepath = root / obs.patients_folder / f"{sanitize_filename(patient_name)}.md"
-    is_new = not filepath.exists()
 
     # Aggregate data from all visits
     first = visits[0]
@@ -476,13 +473,6 @@ def _write_patient_note(
         "source_count": len(visits),
         "tags": [f"{tag_prefix}/patient"],
     }
-
-    lines.append("---")
-    lines.append(yaml.dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip())
-    lines.append("---")
-    lines.append("")
-    lines.append(f"# {patient_name}")
-    lines.append("")
 
     # Identity
     lines.append(f"**性别**: {first.sex.value} | **门诊号**: {', '.join(reg_numbers)}")
@@ -547,8 +537,7 @@ def _write_patient_note(
                     lines.append(f"- [[{d.name}]]")
             lines.append("")
 
-    filepath.write_text("\n".join(lines), encoding="utf-8")
-    return is_new
+    return write_note_preserving(filepath, frontmatter, patient_name, lines)
 
 
 def _build_index(visits: list[VisitRecord]) -> dict:
@@ -698,7 +687,6 @@ def _write_topic_note(
     topic_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = topic_dir / f"{sanitize_filename(keyword.term)}.md"
-    is_new = not filepath.exists()
 
     occ = _dedupe_occurrences(keyword)
     visit_count = len({o.visit_link for o in occ})
@@ -781,18 +769,7 @@ def _write_topic_note(
     if occ:
         body += ["## 出现记录", ""] + _occurrence_table(occ, detail_header) + [""]
 
-    lines = ["---"]
-    lines.append(
-        yaml.dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip()
-    )
-    lines.append("---")
-    lines.append("")
-    lines.append(f"# {keyword.term}")
-    lines.append("")
-    lines += body
-
-    filepath.write_text("\n".join(lines), encoding="utf-8")
-    return is_new
+    return write_note_preserving(filepath, frontmatter, keyword.term, body)
 
 
 def _write_formula_note(fdata: dict, vault_path: Path, config: Config) -> bool:
@@ -802,7 +779,6 @@ def _write_formula_note(fdata: dict, vault_path: Path, config: Config) -> bool:
     formulas_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = formulas_dir / f"{sanitize_filename(fdata['name'])}.md"
-    is_new = not filepath.exists()
 
     patterns = [n for n in fdata["tcm"] if n.endswith("证")]
     diseases = [n for n in fdata["tcm"] if not n.endswith("证")] + fdata["western"]
@@ -820,14 +796,8 @@ def _write_formula_note(fdata: dict, vault_path: Path, config: Config) -> bool:
         "tags": [f"{tag_prefix}/formula"],
     }
 
-    lines = ["---"]
-    lines.append(
-        yaml.dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip()
-    )
-    lines.append("---")
-    lines.append("")
-    lines.append(f"# 方剂 {fdata['formula_id'] or fdata['name']}")
-    lines.append("")
+    title = f"方剂 {fdata['formula_id'] or fdata['name']}"
+    lines: list[str] = []
     lines.append(
         f"**患者**: [[{fdata['patient']}]] | "
         f"**就诊**: [[{fdata['visit_link']}\\|{fdata['visit_date']}]] | "
@@ -848,8 +818,7 @@ def _write_formula_note(fdata: dict, vault_path: Path, config: Config) -> bool:
             lines.append(f"- {l}")
         lines.append("")
 
-    filepath.write_text("\n".join(lines), encoding="utf-8")
-    return is_new
+    return write_note_preserving(filepath, frontmatter, title, lines)
 
 
 def _write_mocs(
@@ -1064,7 +1033,6 @@ def _write_doctor_note(
     doctors_dir.mkdir(parents=True, exist_ok=True)
 
     filepath = doctors_dir / f"{sanitize_filename(doctor_name)}.md"
-    is_new = not filepath.exists()
 
     patients = sorted({v.patient_name for v in visits})
     frontmatter = {
@@ -1075,14 +1043,7 @@ def _write_doctor_note(
         "tags": [f"{tag_prefix}/doctor"],
     }
 
-    lines = ["---"]
-    lines.append(
-        yaml.dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip()
-    )
-    lines.append("---")
-    lines.append("")
-    lines.append(f"# {doctor_name}")
-    lines.append("")
+    lines: list[str] = []
     lines.append("## 接诊记录")
     lines.append("")
     lines.append("| 患者 | 就诊 |")
@@ -1092,8 +1053,7 @@ def _write_doctor_note(
         lines.append(f"| [[{v.patient_name}]] | [[{vlink}\\|{v.visit_date.isoformat()}]] |")
     lines.append("")
 
-    filepath.write_text("\n".join(lines), encoding="utf-8")
-    return is_new
+    return write_note_preserving(filepath, frontmatter, doctor_name, lines)
 
 
 def _format_page_range(pages: list[int]) -> str:

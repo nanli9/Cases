@@ -95,6 +95,24 @@ Save the `VisitRecord[]` array to `/tmp/medrec_extracted_<timestamp>.json`, then
 $MEDREC update --from-json <JSON_PATH> --vault <VAULT_PATH> --pdf <PDF_PATH>
 ```
 
+**Accumulating across PDFs:** when adding a new PDF to a vault that already holds
+earlier records, pass `--append` so the new visits merge into the cumulative store
+(`<vault>/Medical Records/Sources/records.json`) and the whole vault is regenerated
+from the full union (otherwise the aggregate notes are rewritten to reflect only
+this PDF):
+
+```bash
+$MEDREC update --from-json <NEW_JSON_PATH> --vault <VAULT_PATH> --pdf <PDF_PATH> --append
+```
+
+Re-running a corrected extraction of an already stored visit (same patient, date,
+门诊号, source PDF) replaces it rather than duplicating. Stale per-visit files are
+not deleted.
+
+**Manual edits are preserved on regeneration:** a user's free-text `## 笔记`
+section and the herb reference fields `性味` / `归经` / `功效分类` survive each
+`update` run, so avoid warning the user that regeneration will wipe those.
+
 ### Step 5: Report results
 
 Tell the user what was created: number of patients, visits, topic notes, and the vault path.

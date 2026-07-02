@@ -21,6 +21,7 @@ from .extractor import extract_keywords
 from .models import ProcessingManifest, VisitRecord
 from .obsidian_writer import write_vault
 from .pdf_reader import render_pdf_pages, get_pdf_page_count
+from .store import load_store, merge_visits, save_store, visit_identity
 from .utils import today_str
 
 console = Console()
@@ -68,6 +69,17 @@ def render(pdf: str, output_dir: str, dpi: int) -> None:
 @click.option("--config", "config_path", type=click.Path(exists=True), default=None, help="Path to config YAML.")
 @click.option("--dry-run", is_flag=True, help="Print what would be done without writing files.")
 @click.option("--review", is_flag=True, help="Print extracted data for review before writing.")
+@click.option(
+    "--append",
+    is_flag=True,
+    default=False,
+    help=(
+        "Merge these visits into the cumulative records store "
+        "(<vault>/Medical Records/Sources/records.json) and regenerate the "
+        "vault from the full union, so aggregate notes accumulate across PDFs. "
+        "Note: stale visit files from removed records are not deleted."
+    ),
+)
 def update(
     pdf: Optional[str],
     json_path: str,
@@ -75,6 +87,7 @@ def update(
     config_path: Optional[str],
     dry_run: bool,
     review: bool,
+    append: bool,
 ) -> None:
     """Update an Obsidian vault with LLM-extracted visit data."""
     vault_path = Path(vault).resolve()
@@ -85,12 +98,32 @@ def update(
     console.print(f"Loading visits from: [bold]{json_file.name}[/bold]")
 
     raw = json_file.read_text(encoding="utf-8")
-    visits = VisitRecordList.validate_json(raw)
+    new_visits = VisitRecordList.validate_json(raw)
 
     console.print(
-        f"  Loaded [bold]{len(visits)}[/bold] visit(s) "
-        f"for [bold]{len(set(v.patient_name for v in visits))}[/bold] patient(s)"
+        f"  Loaded [bold]{len(new_visits)}[/bold] visit(s) "
+        f"for [bold]{len(set(v.patient_name for v in new_visits))}[/bold] patient(s)"
     )
+
+    if append:
+        # Merge into the cumulative master store, then regenerate from the union.
+        store_path = cfg.records_store_path(vault_path)
+        store = load_store(store_path)
+        visits = merge_visits(store, new_visits)
+
+        existing_ids = {visit_identity(v) for v in store}
+        new_ids = {visit_identity(v) for v in new_visits}
+        added = len(new_ids - existing_ids)
+        replaced = len(new_ids & existing_ids)
+
+        if not dry_run:
+            save_store(store_path, visits)
+        console.print(
+            f"  [bold]Append[/bold]: {added} added, {replaced} replaced, "
+            f"{len(visits)} total in store"
+        )
+    else:
+        visits = new_visits
 
     # Print summary
     _print_visit_summary(visits)
