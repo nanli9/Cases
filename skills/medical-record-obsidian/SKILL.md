@@ -20,6 +20,12 @@ Trigger when the user says anything like:
 
 ## Full workflow — execute all steps automatically
 
+> **Vision required.** The extraction step (reading the rendered PNGs) needs a
+> vision-capable model. Under Codex, confirm the active model can read local
+> image files; if it cannot, the pipeline cannot proceed past `medrec render`.
+> The `render` / `update` / `inspect` / `schema` commands are pure Python and
+> run identically regardless of which agent drives them.
+
 ```
 MEDREC=.venv/bin/medrec
 ```
